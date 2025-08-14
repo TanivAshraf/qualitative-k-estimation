@@ -28,7 +28,7 @@ interface Persona {
   cluster_id: number;
   persona_name: string;
   description: string;
-  marketing_strategy: string;
+  marketing_strategy: string | object; // Allow for unexpected objects
 }
 
 interface AnalysisResult {
@@ -38,6 +38,17 @@ interface AnalysisResult {
     };
     personas: Persona[];
 }
+
+// --- THE FIX: A defensive function to render any value safely ---
+const renderSafe = (value: any) => {
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (typeof value === 'object' && value !== null) {
+        return JSON.stringify(value, null, 2); // Pretty print unexpected objects
+    }
+    return 'N/A'; // Handle null or undefined
+};
 
 export default function HomePage() {
   const [csvData, setCsvData] = useState(sampleCsvData);
@@ -105,11 +116,12 @@ export default function HomePage() {
             <div className="grid md:grid-cols-3 gap-6">
               {result.personas.map((p: Persona) => (
                 <div key={p.cluster_id} className="p-4 bg-white rounded-lg shadow-md border">
-                  <h3 className="text-xl font-bold text-blue-700">{p.persona_name}</h3>
+                  <h3 className="text-xl font-bold text-blue-700">{renderSafe(p.persona_name)}</h3>
                   <p className="text-sm font-medium text-gray-500">Cluster {p.cluster_id}</p>
                   <div className="mt-4 space-y-3">
-                    <p><strong>Description:</strong> {p.description}</p>
-                    <p><strong>Marketing Strategy:</strong> {p.marketing_strategy}</p>
+                    <p><strong>Description:</strong> {renderSafe(p.description)}</p>
+                    {/* Use a pre-wrap to correctly display stringified JSON */}
+                    <p className="whitespace-pre-wrap"><strong>Marketing Strategy:</strong> {renderSafe(p.marketing_strategy)}</p>
                   </div>
                 </div>
               ))}
