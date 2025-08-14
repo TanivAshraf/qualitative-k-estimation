@@ -13,23 +13,6 @@ function robustJSONParse(rawText) {
   return JSON.parse(jsonString);
 }
 
-// --- Step B: Qualitative K-Estimation ---
-async function estimateK(dataSample) {
-  const prompt = `You are an expert data scientist. I am about to perform K-Means clustering on a dataset of customers. Here is a sample of the data (in JSON format):
-  
-  DATA SAMPLE:
-  ${JSON.stringify(dataSample, null, 2)}
-  
-  Based on this sample, your task is to make an educated guess for the optimal number of clusters (k). Consider the ranges and potential groupings in the data. Briefly explain your reasoning.
-  
-  Respond ONLY with a JSON object with the keys "estimated_k" (a number) and "reasoning" (a string).
-  
-  Example Response: {"estimated_k": 3, "reasoning": "The 'total_spent' data seems to fall into three distinct groups: low, medium, and high, making k=3 a logical starting point."}`;
-  
-  const result = await model.generateContent(prompt);
-  return robustJSONParse(result.response.text());
-}
-
 // --- Step D: Persona Generation ---
 async function getPersonaForCluster(clusterData) {
   if (clusterData.length === 0) return null;
@@ -43,11 +26,15 @@ async function getPersonaForCluster(clusterData) {
   }, {});
   Object.keys(stats).forEach(key => { stats[key] /= clusterData.length; });
 
+  // --- THE FIX: A much more forceful and explicit prompt ---
   const prompt = `You are an expert marketing analyst. A customer cluster has these average stats:
   ${JSON.stringify(stats, null, 2)}
   - Number of customers in this segment: ${clusterData.length}
 
-  Create a persona for this segment. Respond ONLY as a JSON object with keys: "persona_name", "description", and "marketing_strategy".`;
+  Create a persona for this segment. Respond ONLY as a JSON object with the keys: "persona_name", "description", and "marketing_strategy".
+  - "persona_name": A catchy name (e.g., 'Loyal High-Spenders').
+  - "description": A 2-3 sentence summary.
+  - "marketing_strategy": A single, actionable marketing tip as a PLAIN STRING. Do NOT use a nested JSON object for the strategy.`;
   
   const result = await model.generateContent(prompt);
   return robustJSONParse(result.response.text());
@@ -66,8 +53,13 @@ export async function POST(request) {
     const data = parsed.data.filter(row => row.customer_id != null && Object.keys(row).length > 1);
 
     // --- Step A: Data Sampling & Description ---
-    const dataSample = data.slice(0, 20); // Take a sample of up to 20 rows
-    const kEstimationResult = await estimateK(dataSample);
+    const dataSample = data.slice(0, 20); 
+    
+    const kEstimationPrompt = `You are an expert data scientist. Based on the following data sample, estimate the optimal number of clusters (k). Respond ONLY with a JSON object with keys "estimated_k" and "reasoning".
+    DATA SAMPLE: ${JSON.stringify(dataSample, null, 2)}`;
+    
+    const kResult = await model.generateContent(kEstimationPrompt);
+    const kEstimationResult = robustJSONParse(kResult.response.text());
     const estimatedK = kEstimationResult.estimated_k;
     const kReasoning = kEstimationResult.reasoning;
     
@@ -100,7 +92,6 @@ export async function POST(request) {
 
     const personas = (await Promise.all(personaPromises)).filter(p => p !== null);
     
-    // --- Final Response ---
     const finalResult = {
         k_estimation: { k: estimatedK, reasoning: kReasoning },
         personas: personas
